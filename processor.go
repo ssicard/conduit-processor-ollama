@@ -12,6 +12,7 @@ import (
 	"github.com/conduitio/conduit-commons/config"
 	"github.com/conduitio/conduit-commons/opencdc"
 	sdk "github.com/conduitio/conduit-processor-sdk"
+	"github.com/rs/zerolog"
 )
 
 //go:generate paramgen -output=paramgen_proc.go ProcessorConfig
@@ -68,11 +69,8 @@ func (p *Processor) Specification() (sdk.Specification, error) {
 	}, nil
 }
 
-// TODO error handling
 func (p *Processor) Process(ctx context.Context, records []opencdc.Record) []sdk.ProcessedRecord {
-	// matches the length of the input slice. However, if an error occurred while processing a
-	// specific record, then it should be reflected in the ProcessedRecord with the same index
-	// as the input record, and should return the slice at that index length.
+	// TODO error: should return the slice at that index length.
 	logger := sdk.Logger(ctx)
 	logger.Info().Msg("Processing ollama records")
 
@@ -83,51 +81,75 @@ func (p *Processor) Process(ctx context.Context, records []opencdc.Record) []sdk
 	// create template for ollama call
 	baseURL := fmt.Sprintf("curl %s/api/generate", p.config.OllamaURL)
 
-	// TODO securing against malicious prompts
-	// TODO limit size of the input
-	conduitPrefix := "For the following records in the opencdc record format, return a list of opencdc records following the instructions provided. Only send back records in the opencdc record format with no explanation."
-	promptAndRecords := fmt.Sprintf(
-		"%s \n Instructions: {%s}\n Records: {%s}",
-		conduitPrefix,
-		p.config.Prompt,
-		records)
-	logger.Info().Msg(fmt.Sprintf("Sending message to ollama with the following prompt: %s", promptAndRecords))
-
-	data := map[string]string{
-		"model":  p.config.Model,
-		"prompt": promptAndRecords,
-	}
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		logger.Error().Err(err).Msg("error marshalling json")
-	}
-
-	// is -d here?
-	req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to create request")
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Error().Err(err).Msg("sending the request failed")
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Error().Err(err).Msg("reading body of call")
-		// sdk.ErrorRecord{Error: fmt.Errorf()}
-	}
-
-	logger.Info().Msg(fmt.Sprintf("Response from ollama call: %s", string(body)))
-	// TODO parse the body into sdk.ProcessedRecord and return
-	resultRecords := [...]opencdc.Record{}
+	// need to loop through record by record in order to put an errors in the appropriate index for record
 	result := make([]sdk.ProcessedRecord, len(records))
-	for i, rec := range resultRecords {
+	for i, rec := range records {
+		prompt := generatePrompt(p.config.Prompt, rec, logger)
+
+		data := map[string]string{
+			"model":  p.config.Model,
+			"prompt": prompt,
+		}
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			logger.Error().Err(err).Msg("error marshalling json")
+			result[i] = sdk.ErrorRecord{Error: fmt.Errorf("error marshalling json")}
+			continue
+		}
+
+		// is -d here?
+		req, err := http.NewRequest("POST", baseURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			logger.Error().Err(err).Msg("unable to create request")
+			result[i] = sdk.ErrorRecord{Error: fmt.Errorf("unable to create request")}
+			continue
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			logger.Error().Err(err).Msg("sending the request failed")
+			result[i] = sdk.ErrorRecord{Error: fmt.Errorf("sending the request failed")}
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logger.Error().Err(err).Msg("reading body of call")
+			result[i] = sdk.ErrorRecord{Error: fmt.Errorf("reading body of call")}
+			continue
+		}
+
+		logger.Info().Msg(fmt.Sprintf("Response from ollama call: %s", string(body)))
+		// assume its json
+		respJson, err := json.Marshal(string(body))
+		if err != nil {
+			logger.Error().Err(err).Msg("unable to marshal json")
+			result[i] = sdk.ErrorRecord{Error: fmt.Errorf("error marshalling json")}
+			continue
+		}
+		// convert returned json into opencdrc.StructuredData? or RawData?
+		rec.Payload.After = opencdc.RawData(respJson)
+
 		result[i] = sdk.SingleRecord(rec)
+
 	}
 
 	return result
+}
+
+func generatePrompt(userPrompt string, record opencdc.Record, logger *zerolog.Logger) string {
+	// TODO securing against malicious prompts
+	// TODO limit size of the input
+	conduitPrefix := "For the following records, return a json list of records following the instructions provided. Only send back records in the json format with no explanation."
+
+	prompt := fmt.Sprintf(
+		"%s \n Instructions: {%s}\n Record: {%s}",
+		conduitPrefix,
+		userPrompt,
+		record)
+	logger.Info().Msg(fmt.Sprintf("Sending message to ollama with the following prompt: %s", prompt))
+
+	return prompt
 }
