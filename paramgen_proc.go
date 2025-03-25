@@ -8,28 +8,31 @@ import (
 )
 
 const (
-	ProcessorConfigField     = "field"
-	ProcessorConfigThreshold = "threshold"
+	ProcessorConfigModel  = "model"
+	ProcessorConfigPrompt = "prompt"
+	ProcessorConfigUrl    = "url"
 )
 
 func (ProcessorConfig) Parameters() map[string]config.Parameter {
 	return map[string]config.Parameter{
-		ProcessorConfigField: {
+		ProcessorConfigModel: {
+			Default:     "llama3.2",
+			Description: "Model is the name of the model used with ollama",
+			Type:        config.ParameterTypeString,
+			Validations: []config.Validation{},
+		},
+		ProcessorConfigPrompt: {
 			Default:     "",
-			Description: "Field is the target field that will be set.",
+			Description: "Prompt is the prompt to pass into ollama to tranform the data",
+			Type:        config.ParameterTypeString,
+			Validations: []config.Validation{},
+		},
+		ProcessorConfigUrl: {
+			Default:     "",
+			Description: "OllamaURL is the url to the ollama instance",
 			Type:        config.ParameterTypeString,
 			Validations: []config.Validation{
 				config.ValidationRequired{},
-				config.ValidationExclusion{List: []string{".Position"}},
-			},
-		},
-		ProcessorConfigThreshold: {
-			Default:     "",
-			Description: "Threshold is the threshold for filtering the record.",
-			Type:        config.ParameterTypeInt,
-			Validations: []config.Validation{
-				config.ValidationRequired{},
-				config.ValidationGreaterThan{V: 0},
 			},
 		},
 	}
