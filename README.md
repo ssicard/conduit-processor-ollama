@@ -1,6 +1,6 @@
-# Conduit Processor for <resource>
+# Conduit Processor for Ollama
 
-[Conduit](https://conduit.io) processor for <resource>.
+[Conduit](https://conduit.io) processor for Ollama. [Ollama](https://ollama.com/) is an option for self-hosting large language models for more privacy and control. 
 
 ## How to build?
 
