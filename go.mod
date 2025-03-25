@@ -1,7 +1,6 @@
 module github.com/conduitio/conduit-processor-template
 
-go 1.23
-toolchain go1.24.1
+go 1.23.2
 
 require (
 	github.com/conduitio/conduit-commons v0.5.2
